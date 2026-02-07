@@ -1,8 +1,8 @@
-use std::{fs::File, io::BufReader, time::Instant};
+use std::{fs::File, io::{BufReader, BufWriter}, time::Instant};
 
 use bevy::{DefaultPlugins, app::{App, Startup, Update}, asset::{Asset, Assets, Handle, RenderAssetUsages}, camera::{Camera3d, OrthographicProjection, Projection, ScalingMode}, camera_controller::free_camera::{FreeCamera, FreeCameraPlugin}, dev_tools::fps_overlay::FpsOverlayPlugin, ecs::{message::MessageReader, system::{Commands, ResMut, Single}}, image::Image, math::{Vec2, Vec3, primitives::Rectangle}, mesh::{Mesh, Mesh3d}, pbr::{Material, MaterialPlugin, MeshMaterial3d}, reflect::TypePath, render::render_resource::{AsBindGroup, Extent3d, TextureDimension, TextureFormat}, transform::components::Transform, window::{PresentMode, Window, WindowResized}};
 use bytemuck::cast_slice;
-use tiff::{ColorType, decoder::{Decoder, DecodingResult}};
+use tiff::{ColorType, decoder::{Decoder, DecodingResult}, encoder::{TiffEncoder, colortype}};
 
 fn main() {
     App::new()
@@ -16,7 +16,7 @@ fn main() {
 fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ScreenMaterial>>, mut win: Single<&mut Window>, mut images: ResMut<Assets<Image>>) {
     win.present_mode = PresentMode::AutoNoVsync;
     let quad = meshes.add(Rectangle::from_size(Vec2 { x: win.width(), y: win.height() }));
-    let img: Handle<Image> = images.add(load_tiff("assets/gebco.tif"));
+    let img: Handle<Image> = images.add(load_tiff("final.tif", false, true, Some("test.tif")));
     let material = materials.add(ScreenMaterial {
         width: win.width() as u32,
         height: win.height() as u32,
@@ -67,12 +67,18 @@ fn resize_quad_system(
     }
 }
 
-fn load_tiff(path: &str) -> Image {
+fn load_tiff(path: &str, compute: bool, save: bool, output_path: Option<&str>) -> Image {
     let (mut data_i16, width, height): (Vec<i16>, u32, u32) = rgba16_from_tiff(path);
 
     let now = Instant::now();
 
-    compute_tiff(&mut data_i16, width, height, 16);
+    if compute {
+        compute_tiff(&mut data_i16, width, height, 16);
+    }
+
+    if save {
+        write_tiff(output_path.unwrap(), &data_i16, width, height);
+    }
 
     println!("took {} seconds to create texture", now.elapsed().as_secs_f64());
 
@@ -94,7 +100,7 @@ fn load_tiff(path: &str) -> Image {
 }
 
 fn rgba16_from_tiff(path: &str) -> (Vec<i16>, u32, u32) {
-    let file: File = File::open(path).unwrap();
+    let file: File = File::open(format!("assets/{}", path)).unwrap();
     let mut decoder = Decoder::new(BufReader::new(file)).unwrap();
 
     let (width, height): (u32, u32) = decoder.dimensions().unwrap();
@@ -119,8 +125,16 @@ fn rgba16_from_tiff(path: &str) -> (Vec<i16>, u32, u32) {
     let _ = decoder.read_image_to_buffer(&mut src_buf).unwrap();
     let data_i16: Vec<i16> = match src_buf {
         DecodingResult::I16(data) => data,
-        _ => panic!("Unexpected buffer type; expected I16"),
+
+        DecodingResult::U16(data) => {
+            data.into_iter()
+                .map(|v| (v as i32 - i16::MIN as i32) as i16)
+                .collect()
+        }
+
+        other => panic!("Unsupported TIFF buffer type: {:?}", other),
     };
+
 
     let mut buf: Vec<i16> = vec![0; (width * height * 4) as usize];
 
@@ -225,6 +239,18 @@ fn compute_tiff(data: &mut Vec<i16>, width: u32, height: u32, radius: i16) {
             data[a_idx] = radius;
         }
     }
+}
+
+fn write_tiff(path: &str, data: &[i16], width: u32, height: u32) {
+    let file = File::create(format!("assets/{}", path)).unwrap();
+    let writer = BufWriter::new(file);
+
+    let mut encoder = TiffEncoder::new(writer).unwrap();
+    let image = encoder.new_image::<colortype::RGBA16>(width, height).unwrap();
+
+    let data_u16: Vec<u16> = data.iter().map(|&v| ((v as i32) - (i16::MIN as i32)) as u16).collect();
+
+    image.write_data(&data_u16).unwrap();
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
