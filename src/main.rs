@@ -1,4 +1,4 @@
-use std::{fs::File, io::BufReader};
+use std::{fs::File, io::BufReader, time::Instant};
 
 use bevy::{DefaultPlugins, app::{App, Startup, Update}, asset::{Asset, Assets, Handle, RenderAssetUsages}, camera::{Camera3d, OrthographicProjection, Projection, ScalingMode}, camera_controller::free_camera::{FreeCamera, FreeCameraPlugin}, dev_tools::fps_overlay::FpsOverlayPlugin, ecs::{message::MessageReader, system::{Commands, ResMut, Single}}, image::Image, math::{Vec2, Vec3, primitives::Rectangle}, mesh::{Mesh, Mesh3d}, pbr::{Material, MaterialPlugin, MeshMaterial3d}, reflect::TypePath, render::render_resource::{AsBindGroup, Extent3d, TextureDimension, TextureFormat}, transform::components::Transform, window::{PresentMode, Window, WindowResized}};
 use bytemuck::cast_slice;
@@ -18,8 +18,8 @@ fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials
     let quad = meshes.add(Rectangle::from_size(Vec2 { x: win.width(), y: win.height() }));
     let img: Handle<Image> = images.add(load_tiff("assets/gebco.tif"));
     let material = materials.add(ScreenMaterial {
-        width: 100,
-        height: 100,
+        width: win.width() as u32,
+        height: win.height() as u32,
         image: img
     });
 
@@ -52,21 +52,29 @@ fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials
 fn resize_quad_system(
     mut resize_events: MessageReader<WindowResized>,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ScreenMaterial>>
 ) {
     for event in resize_events.read() {
         let new_size = Vec2::new(event.width, event.height);
         for mesh in meshes.iter_mut() {
             *(mesh.1) = Rectangle::from_size(new_size).into();
         }
+
+        for material in materials.iter_mut() {
+            (*(material.1)).width = event.width as u32;
+            (*(material.1)).height = event.height as u32;
+        }
     }
 }
 
 fn load_tiff(path: &str) -> Image {
-    let file: File = File::open(path).unwrap();
-    let mut decoder = Decoder::new(BufReader::new(file)).unwrap();
+    let (mut data_i16, width, height): (Vec<i16>, u32, u32) = rgba16_from_tiff(path);
 
-    let (width, height): (u32, u32) = decoder.dimensions().unwrap();
-    let data_i16 = compute_tiff("assets/gebco.tif");
+    let now = Instant::now();
+
+    compute_tiff(&mut data_i16, width, height, 16);
+
+    println!("took {} seconds to create texture", now.elapsed().as_secs_f64());
 
     let data_f32: Vec<f32> = data_i16.iter().map(|&v| (v as f32) / 10930.0).collect();
 
@@ -85,7 +93,7 @@ fn load_tiff(path: &str) -> Image {
     return image;
 }
 
-fn compute_tiff(path: &str) -> Vec<i16> {
+fn rgba16_from_tiff(path: &str) -> (Vec<i16>, u32, u32) {
     let file: File = File::open(path).unwrap();
     let mut decoder = Decoder::new(BufReader::new(file)).unwrap();
 
@@ -123,7 +131,7 @@ fn compute_tiff(path: &str) -> Vec<i16> {
         ColorType::Gray(_) => {
             for y in 0..height as usize {
                 for x in 0..width as usize {
-                    let idx = y * width as usize + x;
+                    let idx: usize = y * width as usize + x;
                     let pixel_val = data_i16[idx];
                     let dst_idx = idx * 4;
                     buf[dst_idx + 0] = pixel_val;
@@ -132,11 +140,91 @@ fn compute_tiff(path: &str) -> Vec<i16> {
                     buf[dst_idx + 3] = 32767; // max alpha
                 }
             }
-        }
+        },
+        ColorType::RGB(_) => {
+            for y in 0..height as usize {
+                for x in 0..width as usize {
+                    let idx: usize = (y * width as usize + x) * 3;
+                    let dst_idx: usize = (y * width as usize + x) * 4;
+                    buf[dst_idx + 0] = data_i16[idx + 0];
+                    buf[dst_idx + 1] = data_i16[idx + 1];
+                    buf[dst_idx + 2] = data_i16[idx + 2];
+                    buf[dst_idx + 3] = 32767; // max alpha
+                }
+            }
+        },
         _ => unreachable!()
     }
 
-    return buf;
+    return (buf, width, height);
+}
+
+fn compute_tiff(data: &mut Vec<i16>, width: u32, height: u32, radius: i16) {
+    for y in 0..height as usize {
+        for x in 0..width as usize {
+            let idx: usize = (y * width as usize + x) * 4;
+            
+            // let r_idx: usize = idx;
+            let g_idx: usize = idx + 1;
+            let b_idx: usize = idx + 2;
+            let a_idx: usize = idx + 3;
+
+            let mut max_height_in_radius: i16 = i16::MIN;
+            let mut max_diff_in_radius: i16 = 0;
+
+            let rad: isize = radius as isize;
+            let rad_sqr: isize = rad*rad;
+
+            for j in -rad..=rad {
+                for i in -rad..=rad {
+                    if (i*i + j*j) > rad_sqr {
+                        continue;
+                    }
+
+                    let x_rad: isize = x as isize + i;
+                    let y_rad: isize = y as isize + j;
+
+                    if x_rad < 0 || y_rad < 0 || x_rad >= width as isize || y_rad >= height as isize {
+                        continue;
+                    }
+
+                    let radius_idx: usize = ((y_rad as usize) * width as usize + (x_rad as usize)) * 4;
+                    let rad_height: i16 = data[radius_idx];
+
+                    let neighbors = [
+                        (-1, -1), (0, -1), (1, -1),
+                        (-1,  0),          (1,  0),
+                        (-1,  1), (0,  1), (1,  1),
+                    ];
+
+                    for (dx, dy) in neighbors {
+                        let nx = x_rad + dx;
+                        let ny = y_rad + dy;
+
+                        if nx < 0 || ny < 0 ||
+                        nx >= width as isize ||
+                        ny >= height as isize {
+                            continue;
+                        }
+
+                        let n_idx =
+                            ((ny as usize) * width as usize + nx as usize) * 4;
+
+                        let diff = data[n_idx] - rad_height;
+                        max_diff_in_radius = max_diff_in_radius.max(diff);
+                    }
+
+                    if rad_height > max_height_in_radius {
+                        max_height_in_radius = rad_height;
+                    }
+                }
+            }
+
+            data[g_idx] = max_height_in_radius;
+            data[b_idx] = max_diff_in_radius;
+            data[a_idx] = radius;
+        }
+    }
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
