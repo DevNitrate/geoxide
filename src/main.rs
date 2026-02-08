@@ -15,7 +15,7 @@ fn main() {
 fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ScreenMaterial>>, mut win: Single<&mut Window>, mut images: ResMut<Assets<Image>>) {
     win.present_mode = PresentMode::AutoNoVsync;
     let quad = meshes.add(Rectangle::from_size(Vec2 { x: win.width(), y: win.height() }));
-    let (tiff_img, max_height, min_height) = load_tiff("final.tif", false, false, Some("test.tif"));
+    let (tiff_img, max_height, min_height) = load_tiff("cali_final.tif", false, false, Some("cali_final.tif"));
     let img: Handle<Image> = images.add(tiff_img);
     let material = materials.add(ScreenMaterial {
         width: win.width(),
@@ -26,7 +26,7 @@ fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials
         camera_pos: Vec3::ZERO,
         max_height: max_height,
         min_height: min_height,
-        scale_factor: 0.1
+        scale_factor: 0.05
     });
 
     commands.spawn((

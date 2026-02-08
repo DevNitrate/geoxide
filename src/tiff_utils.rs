@@ -2,6 +2,7 @@ use std::{cmp::Ordering, fs::File, io::{BufReader, BufWriter}, time::Instant};
 
 use bevy::{asset::RenderAssetUsages, image::Image, render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
 use bytemuck::cast_slice;
+use rayon::{iter::{IndexedParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
 use tiff::{ColorType, decoder::{Decoder, DecodingResult}, encoder::{TiffEncoder, colortype}};
 
 pub fn load_tiff(path: &str, compute: bool, save: bool, output_path: Option<&str>) -> (Image, f32, f32) {
@@ -10,7 +11,7 @@ pub fn load_tiff(path: &str, compute: bool, save: bool, output_path: Option<&str
     let now = Instant::now();
 
     if compute {
-        compute_tiff(&mut data_i16, width, height, 16);
+        compute_tiff(&mut data_i16, width, height, 128);
     }
 
     if save {
@@ -123,20 +124,27 @@ pub fn rgba16_from_tiff(path: &str) -> (Vec<i16>, u32, u32) {
 }
 
 pub fn compute_tiff(data: &mut Vec<i16>, width: u32, height: u32, radius: i16) {
-    for y in 0..height as usize {
+    let neighbors = [
+        (-1, -1), (0, -1), (1, -1),
+        (-1,  0),          (1,  0),
+        (-1,  1), (0,  1), (1,  1),
+    ];
+    let mut output: Vec<i16> = data.clone();
+
+    let rad: isize = radius as isize;
+    let rad_sqr: isize = rad*rad;
+
+    output.par_chunks_mut((width as usize) * 4).enumerate().for_each(|(y, row)| {
+        let y: usize = y as usize;
         for x in 0..width as usize {
-            let idx: usize = (y * width as usize + x) * 4;
+            let idx: usize = x * 4;
             
-            // let r_idx: usize = idx;
             let g_idx: usize = idx + 1;
             let b_idx: usize = idx + 2;
             let a_idx: usize = idx + 3;
 
             let mut max_height_in_radius: i16 = i16::MIN;
             let mut max_diff_in_radius: i16 = 0;
-
-            let rad: isize = radius as isize;
-            let rad_sqr: isize = rad*rad;
 
             for j in -rad..=rad {
                 for i in -rad..=rad {
@@ -153,12 +161,6 @@ pub fn compute_tiff(data: &mut Vec<i16>, width: u32, height: u32, radius: i16) {
 
                     let radius_idx: usize = ((y_rad as usize) * width as usize + (x_rad as usize)) * 4;
                     let rad_height: i16 = data[radius_idx];
-
-                    let neighbors = [
-                        (-1, -1), (0, -1), (1, -1),
-                        (-1,  0),          (1,  0),
-                        (-1,  1), (0,  1), (1,  1),
-                    ];
 
                     for (dx, dy) in neighbors {
                         let nx = x_rad + dx;
@@ -183,11 +185,12 @@ pub fn compute_tiff(data: &mut Vec<i16>, width: u32, height: u32, radius: i16) {
                 }
             }
 
-            data[g_idx] = max_height_in_radius;
-            data[b_idx] = max_diff_in_radius;
-            data[a_idx] = radius;
+            row[g_idx] = max_height_in_radius;
+            row[b_idx] = max_diff_in_radius;
+            row[a_idx] = radius;
         }
-    }
+    });
+    *data = output;
 }
 
 fn write_tiff(path: &str, data: &[i16], width: u32, height: u32) {

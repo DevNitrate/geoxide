@@ -66,7 +66,7 @@ fn sample_pixel(x: i32, y: i32) -> vec4f {
 
 fn terrain_intersect(origin: vec3f, dir: vec3f, entry_t: f32, l: vec3f, h: vec3f) -> vec4f {
     var t: f32 = ceil(entry_t);
-    let max_steps = 4096;
+    let max_steps = 1024;
 
     for (var step = 0; step < max_steps; step++) {
         let p: vec3f = origin + t * dir;
@@ -78,7 +78,7 @@ fn terrain_intersect(origin: vec3f, dir: vec3f, entry_t: f32, l: vec3f, h: vec3f
         let sample: vec4f = sample_pixel(i32(p.x), i32(p.z)) * scale_factor;
 
         if p.y <= sample.r {
-            return vec4f(t / 20000.0, 0.0, 0.0, 1.0);
+            return vec4f(sample.r / max_height);
         }
 
         if (p + sample.a * dir).y > sample.g {

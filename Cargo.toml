@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 bevy = { version = "0.18.0", features = ["bevy_dev_tools", "free_camera"] }
 bytemuck = "1.25.0"
+rayon = "1.11.0"
 tiff = "0.11.2"
 
 # Enable a small amount of optimization in the dev profile.
