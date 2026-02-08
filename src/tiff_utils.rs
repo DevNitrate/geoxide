@@ -1,10 +1,10 @@
-use std::{fs::File, io::{BufReader, BufWriter}, time::Instant};
+use std::{cmp::Ordering, fs::File, io::{BufReader, BufWriter}, time::Instant};
 
 use bevy::{asset::RenderAssetUsages, image::Image, render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
 use bytemuck::cast_slice;
 use tiff::{ColorType, decoder::{Decoder, DecodingResult}, encoder::{TiffEncoder, colortype}};
 
-pub fn load_tiff(path: &str, compute: bool, save: bool, output_path: Option<&str>) -> Image {
+pub fn load_tiff(path: &str, compute: bool, save: bool, output_path: Option<&str>) -> (Image, f32, f32) {
     let (mut data_i16, width, height): (Vec<i16>, u32, u32) = rgba16_from_tiff(path);
 
     let now = Instant::now();
@@ -19,7 +19,19 @@ pub fn load_tiff(path: &str, compute: bool, save: bool, output_path: Option<&str
 
     println!("took {} seconds to create texture", now.elapsed().as_secs_f64());
 
-    let data_f32: Vec<f32> = data_i16.iter().map(|&v| (v as f32) / 10930.0).collect();
+    let data_f32: Vec<f32> = data_i16.iter().map(|&v| v as f32).collect();
+    let max_height_idx: usize = data_f32
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+        .map(|(index, _)| index).unwrap();
+    let max_height: f32 = data_f32[max_height_idx];
+    let min_height_idx: usize = data_f32
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal))
+        .map(|(index, _)| index).unwrap();
+    let min_height: f32 = data_f32[min_height_idx];
 
     let image = Image::new(
         Extent3d {
@@ -33,7 +45,7 @@ pub fn load_tiff(path: &str, compute: bool, save: bool, output_path: Option<&str
         RenderAssetUsages::all()
     );
 
-    return image;
+    return (image, max_height, min_height);
 }
 
 pub fn rgba16_from_tiff(path: &str) -> (Vec<i16>, u32, u32) {
