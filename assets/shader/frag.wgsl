@@ -29,7 +29,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4f {
 
     let l: vec3f = vec3f(0.0, min_height * scale_factor, 0.0);
     let h: vec3f = vec3f(terrain_dimensions.x, max_height * scale_factor, terrain_dimensions.y);
-
+    
     let bound_check: vec2f = ray_aabb(ray_origin, ray_direction, l, h);
 
     if bound_check.y >= max(bound_check.x, 0.0) {
@@ -66,12 +66,12 @@ fn sample_pixel(x: i32, y: i32) -> vec4f {
 
 fn terrain_intersect(origin: vec3f, dir: vec3f, entry_t: f32, l: vec3f, h: vec3f) -> vec4f {
     var t: f32 = ceil(entry_t);
-    let max_steps = 8192;
+    let max_steps = 4096;
 
     for (var step = 0; step < max_steps; step++) {
         let p: vec3f = origin + t * dir;
 
-        if p.x <= l.x || p.x >= h.x || p.z <= l.z || p.z >= h.z {
+        if p.x <= l.x || p.x >= h.x || p.z <= l.z || p.z >= h.z || p.y < l.y || p.y > h.y {
             return vec4f(0.0, 0.0, 0.0, 1.0);
         }
 
@@ -84,7 +84,7 @@ fn terrain_intersect(origin: vec3f, dir: vec3f, entry_t: f32, l: vec3f, h: vec3f
         if (p + sample.a * dir).y > sample.g {
             t += sample.a;
         } else {
-            t += 1.0;
+            t += floor(clamp(((p.y - sample.r) / (sample.b - dir.y)), 1.0, sample.a));
         }
 
     }
