@@ -1,31 +1,33 @@
 #import bevy_pbr::forward_io::VertexOutput
 
 @group(3) @binding(1) var terrain_texture: texture_2d<f32>;
-@group(3) @binding(2) var terrain_sampler: sampler;
+// @group(3) @binding(2) var terrain_sampler: sampler;
 @group(3) @binding(100) var<uniform> width: f32;
 @group(3) @binding(101) var<uniform> height: f32;
-@group(3) @binding(102) var<uniform> forward_vec: vec3f;
-@group(3) @binding(103) var<uniform> up_vec: vec3f;
-@group(3) @binding(104) var<uniform> camera_pos: vec3f;
-@group(3) @binding(105) var<uniform> max_height: f32;
-@group(3) @binding(106) var<uniform> min_height: f32;
-@group(3) @binding(107) var<uniform> scale_factor: f32;
+@group(3) @binding(102) var<uniform> camera_forward: vec3f;
+@group(3) @binding(103) var<uniform> camera_up: vec3f;
+@group(3) @binding(104) var<uniform> camera_right: vec3f;
+@group(3) @binding(105) var<uniform> camera_pos: vec3f;
+@group(3) @binding(106) var<uniform> max_height: f32;
+@group(3) @binding(107) var<uniform> min_height: f32;
+@group(3) @binding(108) var<uniform> scale_factor: f32;
+@group(3) @binding(109) var<uniform> aspect_ratio: f32;
+@group(3) @binding(110) var<uniform> focal_length: f32;
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4f {
     let terrain_dimensions: vec2f = vec2f(textureDimensions(terrain_texture));
-    let aspect_ratio: f32 = width / height;
 
     var uv: vec2f = in.uv * 2.0 - 1.0;
     uv.x *= aspect_ratio;
     uv.y *= -1.0;
 
-    let camera_forward: vec3f = normalize(forward_vec);
-    let camera_right: vec3f = normalize(cross(camera_forward, normalize(up_vec)));
-    let camera_up: vec3f = cross(camera_right, camera_forward);
+    // let camera_forward: vec3f = normalize(forward_vec);
+    // let camera_right: vec3f = normalize(cross(camera_forward, normalize(up_vec)));
+    // let camera_up: vec3f = cross(camera_right, camera_forward);
 
     let ray_origin: vec3f = camera_pos;
-    let ray_direction: vec3f = project(uv, camera_forward, camera_up, camera_right, 70.0);
+    let ray_direction: vec3f = project(uv, camera_forward, camera_up, camera_right, focal_length);
 
     let l: vec3f = vec3f(0.0, min_height * scale_factor, 0.0);
     let h: vec3f = vec3f(terrain_dimensions.x, max_height * scale_factor, terrain_dimensions.y);
@@ -43,8 +45,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4f {
     // return raymarch(ray_origin, ray_direction);
 }
 
-fn project(uv: vec2f, forward: vec3f, up: vec3f, right: vec3f, fov: f32) -> vec3f {
-    let focal_length: f32 = 1.0 / tan(radians(fov) * 0.5);
+fn project(uv: vec2f, forward: vec3f, up: vec3f, right: vec3f, focal_length: f32) -> vec3f {
+    // let focal_length: f32 = 1.0 / tan(radians(fov) * 0.5);
     return normalize(forward * focal_length + right * uv.x + up * uv.y);
 }
 
@@ -61,7 +63,7 @@ fn ray_aabb(ray_origin: vec3f, ray_dir: vec3f, aabb_min: vec3f, aabb_max: vec3f)
 }
 
 fn sample_pixel(x: i32, y: i32) -> vec4f {
-    return textureLoad(terrain_texture, vec2<i32>(x, y), 0);
+    return vec4f(textureLoad(terrain_texture, vec2<i32>(x, y), 0));
 }
 
 fn terrain_intersect(origin: vec3f, dir: vec3f, entry_t: f32, l: vec3f, h: vec3f) -> vec4f {
@@ -86,7 +88,6 @@ fn terrain_intersect(origin: vec3f, dir: vec3f, entry_t: f32, l: vec3f, h: vec3f
         } else {
             t += floor(clamp(((p.y - sample.r) / (sample.b - dir.y)), 1.0, sample.a));
         }
-
     }
 
     return vec4f(0.0, 0.0, 0.0, 1.0);

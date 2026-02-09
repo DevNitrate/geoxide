@@ -42,7 +42,7 @@ pub fn load_tiff(path: &str, compute: bool, save: bool, output_path: Option<&str
         },
         TextureDimension::D2,
         cast_slice(&data_f32).to_vec(),
-        TextureFormat::Rgba32Float,
+        TextureFormat::Rgba32Float, // bit cast to i32 and f32
         RenderAssetUsages::all()
     );
 

@@ -13,20 +13,23 @@ fn main() {
 }
 
 fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ScreenMaterial>>, mut win: Single<&mut Window>, mut images: ResMut<Assets<Image>>) {
-    win.present_mode = PresentMode::AutoNoVsync;
+    // win.present_mode = PresentMode::AutoNoVsync;
     let quad = meshes.add(Rectangle::from_size(Vec2 { x: win.width(), y: win.height() }));
     let (tiff_img, max_height, min_height) = load_tiff("cali_final.tif", false, false, Some("cali_final.tif"));
     let img: Handle<Image> = images.add(tiff_img);
     let material = materials.add(ScreenMaterial {
         width: win.width(),
         height: win.height(),
+        aspect_ratio: win.width() / win.height(),
         image: img,
-        forward_vec: Vec3::NEG_Z,
-        up_vec: Vec3::Y,
+        camera_forward: Vec3::NEG_Z,
+        camera_up: Vec3::Y,
+        camera_right: Vec3::X,
         camera_pos: Vec3::ZERO,
         max_height: max_height,
         min_height: min_height,
-        scale_factor: 0.05
+        scale_factor: 0.025,
+        focal_length: (1.0 / (70.0_f32.to_radians() * 0.5).tan())
     });
 
     commands.spawn((
@@ -69,6 +72,7 @@ fn resize_quad_system(
         for material in materials.iter_mut() {
             (*(material.1)).width = event.width;
             (*(material.1)).height = event.height;
+            (*(material.1)).aspect_ratio = event.width / event.height;
         }
     }
 }
@@ -76,8 +80,9 @@ fn resize_quad_system(
 fn update_material(query: Query<(&FreeCamera, &Transform)>, mut materials: ResMut<Assets<ScreenMaterial>>) {
     for material in materials.iter_mut() {
         for camera in query {
-            (*(material.1)).up_vec = (camera.1).up().as_vec3();
-            (*(material.1)).forward_vec = (camera.1).forward().as_vec3();
+            (*(material.1)).camera_forward = (camera.1).forward().as_vec3().normalize();
+            (*(material.1)).camera_right = ((*(material.1)).camera_forward).cross((camera.1).up().as_vec3().normalize()).normalize();
+            (*(material.1)).camera_up = ((*(material.1)).camera_right).cross((*(material.1)).camera_forward);
             (*(material.1)).camera_pos = (camera.1).translation;
         }
     }
@@ -87,22 +92,39 @@ fn update_material(query: Query<(&FreeCamera, &Transform)>, mut materials: ResMu
 struct ScreenMaterial {
     #[uniform(100)]
     width: f32,
+
     #[uniform(101)]
     height: f32,
+
     #[uniform(102)]
-    forward_vec: Vec3,
+    camera_forward: Vec3,
+
     #[uniform(103)]
-    up_vec: Vec3,
+    camera_up: Vec3,
+
     #[uniform(104)]
-    camera_pos: Vec3,
+    camera_right: Vec3,
+
     #[uniform(105)]
-    max_height: f32,
+    camera_pos: Vec3,
+
     #[uniform(106)]
-    min_height: f32,
+    max_height: f32,
+
     #[uniform(107)]
+    min_height: f32,
+
+    #[uniform(108)]
     scale_factor: f32,
+
+    #[uniform(109)]
+    aspect_ratio: f32,
+
+    #[uniform(110)]
+    focal_length: f32,
+
     #[texture(1)]
-    #[sampler(2)]
+    // #[sampler(2)]
     image: Handle<Image>
 }
 
