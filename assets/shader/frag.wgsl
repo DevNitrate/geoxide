@@ -1,30 +1,42 @@
 #import bevy_pbr::forward_io::VertexOutput
 
 @group(3) @binding(1) var terrain_texture: texture_2d<f32>;
-// @group(3) @binding(2) var terrain_sampler: sampler;
-@group(3) @binding(100) var<uniform> width: f32;
-@group(3) @binding(101) var<uniform> height: f32;
-@group(3) @binding(102) var<uniform> camera_forward: vec3f;
-@group(3) @binding(103) var<uniform> camera_up: vec3f;
-@group(3) @binding(104) var<uniform> camera_right: vec3f;
-@group(3) @binding(105) var<uniform> camera_pos: vec3f;
-@group(3) @binding(106) var<uniform> max_height: f32;
-@group(3) @binding(107) var<uniform> min_height: f32;
-@group(3) @binding(108) var<uniform> scale_factor: f32;
-@group(3) @binding(109) var<uniform> aspect_ratio: f32;
-@group(3) @binding(110) var<uniform> focal_length: f32;
+@group(3) @binding(100) var<uniform> uniforms: ScreenUniforms;
+
+struct ScreenUniforms {
+    width: f32,
+    height: f32,
+    aspect_ratio: f32,
+    focal_length: f32,
+
+    camera_forward: vec3f,
+    camera_up: vec3f,
+    camera_right: vec3f,
+    camera_pos: vec3f,
+
+    min_height: f32,
+    max_height: f32,
+    scale_factor: f32
+}
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4f {
+    let width: f32 = uniforms.width;
+    let height: f32 = uniforms.height;
+    let camera_forward: vec3f = uniforms.camera_forward;
+    let camera_up: vec3f = uniforms.camera_up;
+    let camera_right: vec3f = uniforms.camera_right;
+    let camera_pos: vec3f = uniforms.camera_pos;
+    let max_height: f32 = uniforms.max_height;
+    let min_height: f32 = uniforms.min_height;
+    let scale_factor: f32 = uniforms.scale_factor;
+    let aspect_ratio: f32 = uniforms.aspect_ratio;
+    let focal_length: f32 = uniforms.focal_length;
     let terrain_dimensions: vec2f = vec2f(textureDimensions(terrain_texture));
 
     var uv: vec2f = in.uv * 2.0 - 1.0;
     uv.x *= aspect_ratio;
     uv.y *= -1.0;
-
-    // let camera_forward: vec3f = normalize(forward_vec);
-    // let camera_right: vec3f = normalize(cross(camera_forward, normalize(up_vec)));
-    // let camera_up: vec3f = cross(camera_right, camera_forward);
 
     let ray_origin: vec3f = camera_pos;
     let ray_direction: vec3f = project(uv, camera_forward, camera_up, camera_right, focal_length);
@@ -39,14 +51,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4f {
     } else {
         return vec4f(0.0);
     }
-
-    // return vec4f(uv, 0.0, 1.0);
-
-    // return raymarch(ray_origin, ray_direction);
 }
 
 fn project(uv: vec2f, forward: vec3f, up: vec3f, right: vec3f, focal_length: f32) -> vec3f {
-    // let focal_length: f32 = 1.0 / tan(radians(fov) * 0.5);
     return normalize(forward * focal_length + right * uv.x + up * uv.y);
 }
 
@@ -62,8 +69,24 @@ fn ray_aabb(ray_origin: vec3f, ray_dir: vec3f, aabb_min: vec3f, aabb_max: vec3f)
     return vec2f(t_min, t_max);
 }
 
+fn unpack_i16(x: u32) -> i32 {
+    return i32(x << 16) >> 16;
+}
+
 fn sample_pixel(x: i32, y: i32) -> vec4f {
-    return vec4f(textureLoad(terrain_texture, vec2<i32>(x, y), 0));
+    let raw: vec4u = bitcast<vec4u>(textureLoad(terrain_texture, vec2i(x, y), 0));
+
+    let r_i: i32 = unpack_i16(raw.x >> 16);
+    let g_i: i32 = unpack_i16(raw.x & 0xFFFFu);
+    let b_i: i32 = unpack_i16(raw.y >> 16);
+    let a_i: i32 = unpack_i16(raw.y & 0xFFFFu);
+
+    return vec4f(
+        f32(r_i),
+        f32(g_i),
+        f32(b_i),
+        f32(a_i),
+    );
 }
 
 fn terrain_intersect(origin: vec3f, dir: vec3f, entry_t: f32, l: vec3f, h: vec3f) -> vec4f {
@@ -77,10 +100,10 @@ fn terrain_intersect(origin: vec3f, dir: vec3f, entry_t: f32, l: vec3f, h: vec3f
             return vec4f(0.0, 0.0, 0.0, 1.0);
         }
 
-        let sample: vec4f = sample_pixel(i32(p.x), i32(p.z)) * scale_factor;
+        let sample: vec4f = sample_pixel(i32(p.x), i32(p.z)) * uniforms.scale_factor;
 
         if p.y <= sample.r {
-            return vec4f(sample.r / max_height);
+            return vec4f(sample.r / uniforms.max_height);
         }
 
         if (p + sample.a * dir).y > sample.g {

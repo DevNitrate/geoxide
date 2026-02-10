@@ -34,6 +34,18 @@ pub fn load_tiff(path: &str, compute: bool, save: bool, output_path: Option<&str
         .map(|(index, _)| index).unwrap();
     let min_height: f32 = data_f32[min_height_idx];
 
+    let mut casted_data: Vec<f32> = Vec::with_capacity(data_i16.len() / 2);
+
+    for i in (0..data_i16.len()).step_by(2) {
+        let higher_half: u32 = (data_i16[i].cast_unsigned() as u32) << 16;
+        let lower_half: u32 = data_i16[i+1].cast_unsigned() as u32;
+        let casted: u32 = higher_half | lower_half;
+
+        let casted_f32: f32 = f32::from_bits(casted);
+
+        casted_data.push(casted_f32);
+    }
+
     let image = Image::new(
         Extent3d {
             width,
@@ -41,8 +53,8 @@ pub fn load_tiff(path: &str, compute: bool, save: bool, output_path: Option<&str
             depth_or_array_layers: 1
         },
         TextureDimension::D2,
-        cast_slice(&data_f32).to_vec(),
-        TextureFormat::Rgba32Float, // bit cast to i32 and f32
+        cast_slice(&casted_data).to_vec(),
+        TextureFormat::Rg32Float,
         RenderAssetUsages::all()
     );
 

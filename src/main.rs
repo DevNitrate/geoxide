@@ -1,6 +1,6 @@
 mod tiff_utils;
 
-use bevy::{DefaultPlugins, app::{App, Startup, Update}, asset::{Asset, Assets, Handle}, camera::{Camera3d, OrthographicProjection, Projection, ScalingMode}, camera_controller::free_camera::{FreeCamera, FreeCameraPlugin}, dev_tools::fps_overlay::FpsOverlayPlugin, ecs::{message::MessageReader, system::{Commands, Query, ResMut, Single}}, image::Image, math::{Vec2, Vec3, primitives::Rectangle}, mesh::{Mesh, Mesh3d}, pbr::{Material, MaterialPlugin, MeshMaterial3d}, reflect::TypePath, render::render_resource::AsBindGroup, transform::components::Transform, window::{PresentMode, Window, WindowResized}};
+use bevy::{DefaultPlugins, app::{App, Startup, Update}, asset::{Asset, Assets, Handle}, camera::{Camera3d, OrthographicProjection, Projection, ScalingMode}, camera_controller::free_camera::{FreeCamera, FreeCameraPlugin}, dev_tools::fps_overlay::FpsOverlayPlugin, ecs::{message::MessageReader, system::{Commands, Query, ResMut, Single}}, image::Image, math::{Vec2, Vec3, primitives::Rectangle}, mesh::{Mesh, Mesh3d}, pbr::{Material, MaterialPlugin, MeshMaterial3d}, reflect::TypePath, render::render_resource::{AsBindGroup, ShaderType}, transform::components::Transform, window::{PresentMode, Window, WindowResized}};
 use crate::tiff_utils::load_tiff;
 
 fn main() {
@@ -13,23 +13,25 @@ fn main() {
 }
 
 fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ScreenMaterial>>, mut win: Single<&mut Window>, mut images: ResMut<Assets<Image>>) {
-    // win.present_mode = PresentMode::AutoNoVsync;
+    win.present_mode = PresentMode::AutoNoVsync;
     let quad = meshes.add(Rectangle::from_size(Vec2 { x: win.width(), y: win.height() }));
     let (tiff_img, max_height, min_height) = load_tiff("cali_final.tif", false, false, Some("cali_final.tif"));
     let img: Handle<Image> = images.add(tiff_img);
     let material = materials.add(ScreenMaterial {
-        width: win.width(),
-        height: win.height(),
-        aspect_ratio: win.width() / win.height(),
+        uniforms: ScreenUniform {
+            width: win.width(),
+            height: win.height(),
+            aspect_ratio: win.width() / win.height(),
+            camera_forward: Vec3::NEG_Z,
+            camera_up: Vec3::Y,
+            camera_right: Vec3::X,
+            camera_pos: Vec3::ZERO,
+            max_height: max_height,
+            min_height: min_height,
+            scale_factor: 0.025,
+            focal_length: (1.0 / (70.0_f32.to_radians() * 0.5).tan())
+        },
         image: img,
-        camera_forward: Vec3::NEG_Z,
-        camera_up: Vec3::Y,
-        camera_right: Vec3::X,
-        camera_pos: Vec3::ZERO,
-        max_height: max_height,
-        min_height: min_height,
-        scale_factor: 0.025,
-        focal_length: (1.0 / (70.0_f32.to_radians() * 0.5).tan())
     });
 
     commands.spawn((
@@ -70,9 +72,9 @@ fn resize_quad_system(
         }
 
         for material in materials.iter_mut() {
-            (*(material.1)).width = event.width;
-            (*(material.1)).height = event.height;
-            (*(material.1)).aspect_ratio = event.width / event.height;
+            (*(material.1)).uniforms.width = event.width;
+            (*(material.1)).uniforms.height = event.height;
+            (*(material.1)).uniforms.aspect_ratio = event.width / event.height;
         }
     }
 }
@@ -80,48 +82,35 @@ fn resize_quad_system(
 fn update_material(query: Query<(&FreeCamera, &Transform)>, mut materials: ResMut<Assets<ScreenMaterial>>) {
     for material in materials.iter_mut() {
         for camera in query {
-            (*(material.1)).camera_forward = (camera.1).forward().as_vec3().normalize();
-            (*(material.1)).camera_right = ((*(material.1)).camera_forward).cross((camera.1).up().as_vec3().normalize()).normalize();
-            (*(material.1)).camera_up = ((*(material.1)).camera_right).cross((*(material.1)).camera_forward);
-            (*(material.1)).camera_pos = (camera.1).translation;
+            (*(material.1)).uniforms.camera_forward = (camera.1).forward().as_vec3().normalize();
+            (*(material.1)).uniforms.camera_right = ((*(material.1)).uniforms.camera_forward).cross((camera.1).up().as_vec3().normalize()).normalize();
+            (*(material.1)).uniforms.camera_up = ((*(material.1)).uniforms.camera_right).cross((*(material.1)).uniforms.camera_forward);
+            (*(material.1)).uniforms.camera_pos = (camera.1).translation;
         }
     }
+}
+
+#[derive(ShaderType, Debug, Clone)]
+struct ScreenUniform {
+    width: f32,
+    height: f32,
+    aspect_ratio: f32,
+    focal_length: f32,
+
+    camera_forward: Vec3,
+    camera_up: Vec3,
+    camera_right: Vec3,
+    camera_pos: Vec3,
+
+    min_height: f32,
+    max_height: f32,
+    scale_factor: f32,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
 struct ScreenMaterial {
     #[uniform(100)]
-    width: f32,
-
-    #[uniform(101)]
-    height: f32,
-
-    #[uniform(102)]
-    camera_forward: Vec3,
-
-    #[uniform(103)]
-    camera_up: Vec3,
-
-    #[uniform(104)]
-    camera_right: Vec3,
-
-    #[uniform(105)]
-    camera_pos: Vec3,
-
-    #[uniform(106)]
-    max_height: f32,
-
-    #[uniform(107)]
-    min_height: f32,
-
-    #[uniform(108)]
-    scale_factor: f32,
-
-    #[uniform(109)]
-    aspect_ratio: f32,
-
-    #[uniform(110)]
-    focal_length: f32,
+    uniforms: ScreenUniform,
 
     #[texture(1)]
     // #[sampler(2)]
