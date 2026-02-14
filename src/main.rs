@@ -1,23 +1,30 @@
 mod tiff_utils;
+mod compute;
 
-use bevy::{DefaultPlugins, app::{App, Startup, Update}, asset::{Asset, Assets, Handle}, camera::{Camera3d, OrthographicProjection, Projection, ScalingMode}, camera_controller::free_camera::{FreeCamera, FreeCameraPlugin}, dev_tools::fps_overlay::FpsOverlayPlugin, ecs::{message::MessageReader, system::{Commands, Query, ResMut, Single}}, image::Image, math::{Vec2, Vec3, primitives::Rectangle}, mesh::{Mesh, Mesh3d}, pbr::{Material, MaterialPlugin, MeshMaterial3d}, reflect::TypePath, render::render_resource::{AsBindGroup, ShaderType}, transform::components::Transform, window::{PresentMode, Window, WindowResized}};
-use crate::tiff_utils::load_tiff;
+use bevy::{DefaultPlugins, app::{App, Startup, Update}, asset::{Asset, AssetServer, Assets, Handle}, camera::{Camera3d, OrthographicProjection, Projection, ScalingMode}, camera_controller::free_camera::{FreeCamera, FreeCameraPlugin}, dev_tools::fps_overlay::FpsOverlayPlugin, ecs::{message::MessageReader, system::{Commands, Query, Res, ResMut, Single}}, image::Image, math::{Vec2, Vec3, primitives::Rectangle}, mesh::{Mesh, Mesh3d}, pbr::{Material, MaterialPlugin, MeshMaterial3d}, reflect::TypePath, render::{Render, RenderApp, RenderStartup, render_resource::{AsBindGroup, PipelineCache, ShaderType}, renderer::{RenderDevice, RenderQueue}}, transform::components::Transform, window::{PresentMode, Window, WindowResized}};
+use bevy_app_compute::prelude::{AppComputePlugin, AppComputeWorker, AppComputeWorkerPlugin};
+use crate::{compute::SimpleComputeWorker, tiff_utils::load_tiff};
 
 fn main() {
-    App::new()
-        .add_plugins((DefaultPlugins, MaterialPlugin::<ScreenMaterial>::default(), FreeCameraPlugin))
-        .add_plugins(FpsOverlayPlugin::default())
-        .add_systems(Startup, setup)
-        .add_systems(Update, (resize_quad_system, update_material))
-        .run();
+    let mut app = App::new();
+    app
+    .add_plugins((DefaultPlugins, MaterialPlugin::<ScreenMaterial>::default(), FreeCameraPlugin, AppComputePlugin))
+    .add_plugins(FpsOverlayPlugin::default())
+    .add_plugins(AppComputeWorkerPlugin::<SimpleComputeWorker>::default())
+    .add_systems(Startup, setup)
+    .add_systems(Update, (resize_quad_system, update_material));
+
+    app.run();
+
 }
 
-fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ScreenMaterial>>, mut win: Single<&mut Window>, mut images: ResMut<Assets<Image>>) {
+fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<ScreenMaterial>>, mut win: Single<&mut Window>, mut images: ResMut<Assets<Image>>, worker: ResMut<AppComputeWorker<SimpleComputeWorker>>) {
     win.present_mode = PresentMode::AutoNoVsync;
-    let quad = meshes.add(Rectangle::from_size(Vec2 { x: win.width(), y: win.height() }));
-    let (tiff_img, max_height, min_height) = load_tiff("cali_final.tif", false, false, Some("cali_final.tif"));
+
+    let quad: Handle<Mesh> = meshes.add(Rectangle::from_size(Vec2 { x: win.width(), y: win.height() }));
+    let (tiff_img, max_height, min_height) = load_tiff("cali_final.tif", true, false, Some("cali_final.tif"), worker);
     let img: Handle<Image> = images.add(tiff_img);
-    let material = materials.add(ScreenMaterial {
+    let material: Handle<ScreenMaterial> = materials.add(ScreenMaterial {
         uniforms: ScreenUniform {
             width: win.width(),
             height: win.height(),
@@ -40,7 +47,7 @@ fn setup(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials
             walk_speed: 6000.0,
             ..Default::default()
         },
-        Transform::from_xyz(0.0, 0.0, 10000.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(1000.0, 500.0, 2000.0).looking_at(Vec3::new(1000.0, 0.0, 0.0), Vec3::Y),
         Projection::from(
             OrthographicProjection {
                 scale: 1.0,

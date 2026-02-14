@@ -1,17 +1,23 @@
+#![allow(unused_variables)]
+
 use std::{cmp::Ordering, fs::File, io::{BufReader, BufWriter}, time::Instant};
 
-use bevy::{asset::RenderAssetUsages, image::Image, render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
+use bevy::{asset::{AssetServer, RenderAssetUsages}, ecs::system::{Res, ResMut}, image::Image, render::{render_resource::{Extent3d, PipelineCache, TextureDimension, TextureFormat}, renderer::{RenderDevice, RenderQueue}}};
+use bevy_app_compute::prelude::AppComputeWorker;
 use bytemuck::cast_slice;
 use rayon::{iter::{IndexedParallelIterator, ParallelIterator}, slice::ParallelSliceMut};
 use tiff::{ColorType, decoder::{Decoder, DecodingResult}, encoder::{TiffEncoder, colortype}};
 
-pub fn load_tiff(path: &str, compute: bool, save: bool, output_path: Option<&str>) -> (Image, f32, f32) {
-    let (mut data_i16, width, height): (Vec<i16>, u32, u32) = rgba16_from_tiff(path);
+use crate::compute::{self, SimpleComputeWorker};
+
+pub fn load_tiff(path: &str, compute: bool, save: bool, output_path: Option<&str>, worker: ResMut<AppComputeWorker<SimpleComputeWorker>>) -> (Image, f32, f32) {
+    let (data_i16, width, height): (Vec<i16>, u32, u32) = rgba16_from_tiff(path);
 
     let now = Instant::now();
+    let mut data_i32: Vec<i32> = data_i16.iter().map(|&v| v as i32).collect();
 
     if compute {
-        compute_tiff(&mut data_i16, width, height, 128);
+        compute::compute_tiff(&mut data_i32, width, height, 128, worker);
     }
 
     if save {
